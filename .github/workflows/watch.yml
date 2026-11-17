@@ -1,0 +1,35 @@
+name: Watch UCLA seats
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # every 10 min (GitHub may delay scheduled runs)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: watch
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check seats
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python3 watch.py
+
+      - name: Save state if changed
+        run: |
+          if ! git diff --quiet -- state.json || ! git ls-files --error-unmatch state.json >/dev/null 2>&1; then
+            git config user.name "seat-watcher-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "Update seat state"
+            git push
+          fi
