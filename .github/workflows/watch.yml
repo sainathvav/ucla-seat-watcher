@@ -1,13 +1,18 @@
 name: Watch UCLA seats
 
+# Each run stays alive for ~5.5 hours, checking every 5 minutes, then starts the
+# next run itself. GitHub's own scheduler is unreliable (runs can be hours apart),
+# so the schedule below is only a backup in case the chain ever breaks.
 on:
-  schedule:
-    - cron: "*/10 * * * *"   # every 10 min (GitHub may delay scheduled runs)
   workflow_dispatch: {}
+  schedule:
+    - cron: "17,47 * * * *"
 
 permissions:
-  contents: write
+  contents: write   # save state.json
+  actions: write    # start the next run
 
+# Only one watcher at a time; a new run waits (queued) until the current one ends.
 concurrency:
   group: watch
   cancel-in-progress: false
@@ -15,21 +20,33 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check seats
+      - name: Check seats every 5 minutes for ~5.5 hours
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-        run: python3 watch.py
-
-      - name: Save state if changed
+          INTERVAL_SECONDS: 300
+          RUN_FOR_SECONDS: 19800
         run: |
-          if ! git diff --quiet -- state.json || ! git ls-files --error-unmatch state.json >/dev/null 2>&1; then
-            git config user.name "seat-watcher-bot"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add state.json
-            git commit -m "Update seat state"
-            git push
-          fi
+          git config user.name "seat-watcher-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          end=$(( $(date +%s) + RUN_FOR_SECONDS ))
+          while [ "$(date +%s)" -lt "$end" ]; do
+            # Pick up edits to courses.json pushed while this run is going
+            git pull -q --rebase origin main || echo "pull failed, continuing with local copy"
+            python3 watch.py || echo "check failed, will retry next round"
+            if ! git diff --quiet -- state.json || ! git ls-files --error-unmatch state.json >/dev/null 2>&1; then
+              git add state.json
+              git commit -q -m "Update seat state"
+              git push -q origin HEAD:main || { git pull -q --rebase origin main && git push -q origin HEAD:main; } || echo "push failed"
+            fi
+            sleep "$INTERVAL_SECONDS"
+          done
+
+      - name: Start the next run
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run watch.yml --repo "$GITHUB_REPOSITORY" --ref main

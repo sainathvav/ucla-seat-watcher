@@ -109,20 +109,25 @@ def main():
         summary.append(f"{name}: {status} / {waitlist}")
         print(f"OK {name}: {status} | {waitlist} | available={avail}")
 
-        if prev.get("errors", 0) >= ERROR_ALERT_AFTER:
-            notify(f"Seat watcher recovered: {name}", f"{status} / {waitlist}", tags="white_check_mark")
+        try:
+            if prev.get("errors", 0) >= ERROR_ALERT_AFTER:
+                notify(f"Seat watcher recovered: {name}", f"{status} / {waitlist}", tags="white_check_mark")
 
-        changed = (prev.get("status"), prev.get("waitlist")) != (status, waitlist)
-        if changed and "status" in prev:
-            if avail:
-                notify(f"SEAT OPEN: {name}",
-                       f"{status} / {waitlist}\nEnroll now at my.ucla.edu",
-                       priority="urgent", tags="rotating_light,tada", click=url)
-            else:
-                notify(f"Status changed: {name}",
-                       f"{prev.get('status')} -> {status} / {waitlist}", tags="information_source", click=url)
-        elif "status" not in prev:
-            notify(f"Now watching: {name}", f"{status} / {waitlist}", priority="low", tags="eyes", click=url)
+            changed = (prev.get("status"), prev.get("waitlist")) != (status, waitlist)
+            if changed and "status" in prev:
+                if avail:
+                    notify(f"SEAT OPEN: {name}",
+                           f"{status} / {waitlist}\nEnroll now at my.ucla.edu",
+                           priority="urgent", tags="rotating_light,tada", click=url)
+                else:
+                    notify(f"Status changed: {name}",
+                           f"{prev.get('status')} -> {status} / {waitlist}", tags="information_source", click=url)
+            elif "status" not in prev:
+                notify(f"Now watching: {name}", f"{status} / {waitlist}", priority="low", tags="eyes", click=url)
+        except Exception as e:
+            # Don't record the new status, so the notification is retried on the next check
+            print(f"NOTIFY FAILED {name}: {e}")
+            continue
 
         courses_state[name] = {"status": status, "waitlist": waitlist, "errors": 0}
 
